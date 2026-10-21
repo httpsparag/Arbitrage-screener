@@ -1,0 +1,23 @@
+{
+  "name": "arbitrage-screener",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NSE cash-futures arbitrage screener",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:status": "node scripts/db.mjs status",
+    "db:dry-run": "node scripts/db.mjs dry-run",
+    "db:push": "node scripts/db.mjs push"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "supabase": "^2.121.0"
+  }
+}

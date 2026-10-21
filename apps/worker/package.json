@@ -1,0 +1,25 @@
+{
+  "name": "@arb/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:angel": "tsx --env-file-if-exists=.env src/scripts/check-angel.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:stream": "tsx --env-file-if-exists=.env src/scripts/check-stream.ts",
+    "start": "tsx --env-file-if-exists=.env src/index.ts"
+  },
+  "dependencies": {
+    "@arb/core": "*",
+    "@supabase/supabase-js": "^2.118.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
+  }
+}
