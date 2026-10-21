@@ -50,6 +50,8 @@ export interface MarginConfig {
   pledgeHaircut: number;
   /** Max share of margin that non-cash collateral may cover (exchange 50:50 rule). */
   maxCollateralShareOfMargin: number;
+  /** Cash kept aside for daily mark-to-market losses on the short future, as a fraction of futures value. */
+  mtmBufferRate: number;
 }
 
 /**
@@ -94,7 +96,7 @@ export const DEFAULT_CALC_CONFIG: CalcConfig = {
   maxBasisDeviation: 0.2,
   funding: { ownCapitalRate: 0.07, borrowedFraction: 0, borrowRate: 0.12, dayCountBasis: 365 },
   profitBasis: 'before_funding',
-  margin: { marginRate: 0.2, pledgeShares: false, pledgeHaircut: 0.2, maxCollateralShareOfMargin: 0.5 },
+  margin: { marginRate: 0.2, pledgeShares: false, pledgeHaircut: 0.2, maxCollateralShareOfMargin: 0.5, mtmBufferRate: 0 },
   broker: ANGEL_ONE_DEFAULT,
   schedules: STATUTORY_SCHEDULES,
   investmentAmount: null,
@@ -112,6 +114,11 @@ export interface OpportunityInput {
   basisStdPct?: number | null;
   /** False outside the normal trading session; such rows are never executable. Default true. */
   marketOpen?: boolean;
+  /**
+   * Broker-quoted margin for the short future as a fraction of futures value (e.g. 0.177).
+   * When absent, `config.margin.marginRate` is used and the margin is reported as an estimate.
+   */
+  marginRate?: number | null;
 }
 
 export interface Economics {
@@ -147,11 +154,28 @@ export interface Economics {
   annualizedYieldBeforeFundingPct: number | null;
   /** True when the trade still makes money after the funding/opportunity cost. */
   beatsFundingRate: boolean;
+  /** Futures margin rate used, and whether it came from the broker or the configured estimate. */
+  marginRateUsed: number;
+  marginSource: 'broker' | 'estimate';
+  /** Futures margin for the short leg (SPAN + exposure). */
   marginEstimate: number;
+  /** Margin covered by pledged shares (capped by haircut and the 50:50 rule). */
   collateralCredit: number;
+  /** Charges paid on entry (both legs). */
+  entryCosts: number;
+  /** Cash reserved for mark-to-market losses on the short future. */
+  mtmBuffer: number;
+  /**
+   * Total capital needed to open and hold the position:
+   * cash purchase + entry charges + (futures margin − pledge credit) + MTM buffer.
+   */
+  capitalRequired: number;
+  /** @deprecated Same as capitalRequired. */
   totalCapitalAllocated: number;
-  /** Secondary measure on total allocated capital; never used for ranking. */
-  netReturnOnAllocatedPct: number;
+  /** Net profit (under the profit basis) / capital required × 100. Never used as the ranking denominator. */
+  netReturnOnCapitalPct: number;
+  /** The above, annualized. null when holding days ≤ 0. */
+  annualizedYieldOnCapitalPct: number | null;
 }
 
 export interface Opportunity {
@@ -277,6 +301,7 @@ export function computeEconomics(args: {
   today: string;
   config: CalcConfig;
   corporateActions?: readonly CorporateAction[];
+  marginRate?: number | null;
 }): { economics: Economics; warnings: Warning[] } {
   const { contract, cashBuyPrice, futSellPrice, lots, today, config } = args;
   const schedule = scheduleFor(today, config.schedules);
@@ -340,11 +365,16 @@ export function computeEconomics(args: {
     holdingDays > 0 ? r * (config.funding.dayCountBasis / holdingDays) * 100 : null;
 
   const m = config.margin;
-  const marginEstimate = futValue * m.marginRate;
+  const brokerMargin = typeof args.marginRate === 'number' && args.marginRate > 0 && args.marginRate < 1;
+  const marginRateUsed = brokerMargin ? args.marginRate! : m.marginRate;
+  const marginEstimate = futValue * marginRateUsed;
   const collateralCredit = m.pledgeShares
     ? Math.min(marginEstimate * m.maxCollateralShareOfMargin, cashValue * (1 - m.pledgeHaircut))
     : 0;
-  const totalCapitalAllocated = cashValue + (marginEstimate - collateralCredit);
+  const entryCosts = costs.byPhase.entry;
+  const mtmBuffer = futValue * Math.max(0, m.mtmBufferRate);
+  const capitalRequired = cashValue + entryCosts + (marginEstimate - collateralCredit) + mtmBuffer;
+  const basisNet = config.profitBasis === 'before_funding' ? netProfitBeforeFunding : netProfit;
 
   const warnings: Warning[] = [
     ...div.warnings,
@@ -385,10 +415,16 @@ export function computeEconomics(args: {
       netReturnBeforeFundingPct: netReturnBeforeFunding * 100,
       annualizedYieldBeforeFundingPct: annualize(netReturnBeforeFunding),
       beatsFundingRate: netProfit > 0,
+      marginRateUsed,
+      marginSource: brokerMargin ? 'broker' : 'estimate',
       marginEstimate,
       collateralCredit,
-      totalCapitalAllocated,
-      netReturnOnAllocatedPct: (netProfit / totalCapitalAllocated) * 100,
+      entryCosts,
+      mtmBuffer,
+      capitalRequired,
+      totalCapitalAllocated: capitalRequired,
+      netReturnOnCapitalPct: (basisNet / capitalRequired) * 100,
+      annualizedYieldOnCapitalPct: annualize(basisNet / capitalRequired),
     },
     warnings,
   };
@@ -581,6 +617,7 @@ export function computeOpportunity(input: OpportunityInput): Opportunity {
     today,
     config,
     corporateActions: input.corporateActions,
+    marginRate: input.marginRate,
   });
 
   let investment: Opportunity['investment'] = null;
@@ -599,6 +636,7 @@ export function computeOpportunity(input: OpportunityInput): Opportunity {
               today,
               config,
               corporateActions: input.corporateActions,
+              marginRate: input.marginRate,
             }).economics, config.profitBasis)
           : 0,
     };

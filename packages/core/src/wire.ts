@@ -26,7 +26,10 @@ export type WireQuote = [
   depthQty: number,
 ];
 
-/** [yieldAfterCosts, excessYield, netPerLot, netReturnPct, grossSpread, grossPct, grossPerLot, costs, funding, quality] */
+/**
+ * [yieldAfterCosts, excessYield, netPerLot, netReturnPct, grossSpread, grossPct, grossPerLot, costs, funding, quality,
+ *  capitalRequired, yieldOnCapital]. The last two are absent in snapshots written before they existed.
+ */
 export type WireMetrics = [
   yieldAfterCosts: number | null,
   excessYield: number | null,
@@ -38,6 +41,8 @@ export type WireMetrics = [
   costs: number | null,
   funding: number | null,
   quality: number | null,
+  capitalRequired?: number | null,
+  yieldOnCapital?: number | null,
 ];
 
 export interface WireRow {
@@ -59,6 +64,8 @@ export interface WireRow {
   m: WireMetrics;
   /** Exchange trading symbol of the future, e.g. RELIANCE27OCT26FUT. */
   fs: string;
+  /** Broker margin rate for the short future (fraction of futures value), when known. */
+  mr?: number | null;
 }
 
 const r = (v: number | null | undefined, dp: number): number | null =>
@@ -92,8 +99,11 @@ export function toWireRow(o: Opportunity): WireRow {
       r(e?.costs.total, 2),
       r(e?.fundingCost, 2),
       r(o.quality?.score, 1),
+      r(e?.capitalRequired, 0),
+      r(e?.annualizedYieldOnCapitalPct, 3),
     ],
     fs: o.contract.futTradingSymbol,
+    mr: e?.marginSource === 'broker' ? r(e.marginRateUsed, 5) : null,
   };
 }
 
@@ -114,7 +124,7 @@ export function fromWireRow(
   row: WireRow,
   receivedAt: number,
   dataKind: DataKind = row.dk ?? 'live',
-): { contract: Contract; cashQuote: Quote; futQuote: Quote } {
+): { contract: Contract; cashQuote: Quote; futQuote: Quote; marginRate: number | null } {
   const quote = (token: string, w: WireQuote): Quote => ({
     token,
     ltp: w[0],
@@ -143,6 +153,7 @@ export function fromWireRow(
     },
     cashQuote: quote(row.ck, row.c),
     futQuote: quote(row.k, row.f),
+    marginRate: row.mr ?? null,
   };
 }
 
@@ -174,8 +185,13 @@ export interface WireSummary {
 }
 
 export interface WireMessage {
-  /** 'top': best rows every few seconds; 'full': entire universe. */
-  kind: 'top' | 'full';
+  /**
+   * 'top': best rows every few seconds; 'full': entire universe;
+   * 'close': entire universe calculated from the session's closing prices (theoretical).
+   */
+  kind: 'top' | 'full' | 'close';
+  /** For 'close': the trading date the closing prices belong to (YYYY-MM-DD). */
+  tradeDate?: string;
   at: number;
   version: string;
   feed: WireFeed;

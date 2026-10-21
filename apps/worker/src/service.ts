@@ -25,6 +25,8 @@ import { AngelClient } from './providers/angel/client';
 import { buildUniverse, loadScripMaster } from './providers/angel/scripMaster';
 import { AngelStreamProvider } from './providers/angel/stream';
 import type { Instrument, ProviderStatus } from './providers/Provider';
+import { buildCloseMessage } from './closeSnapshot';
+import { MarginBook } from './margins';
 import { Publisher, type BasisSample } from './publisher';
 import { QuoteStore } from './quoteStore';
 import { sessionPhase, shouldRun } from './session';
@@ -40,6 +42,9 @@ const SETTINGS_MS = 60_000;
 const BASIS_SAMPLE_MS = 5 * 60_000;
 const TOP_ROWS = 100;
 const HISTORY_RETENTION_MS = 8 * 86_400_000;
+/** Broker margins change with exchange risk parameters; refresh a few times a day. */
+const MARGIN_REFRESH_MS = 2 * 60 * 60_000;
+const MARGIN_FIRST_FETCH_DELAY_MS = 20_000;
 
 export interface ServiceOptions {
   /** Hold the feed open regardless of the clock (testing). Rows are still marked closed outside the session. */
@@ -68,6 +73,8 @@ export class ScreenerService {
   private readonly log: NonNullable<ServiceOptions['log']>;
   private feed: AngelStreamProvider | null = null;
   private store = new QuoteStore();
+  private margins: MarginBook;
+  private marginsBusy = false;
   private contracts: Contract[] = [];
   private contractsByToken = new Map<string, Contract[]>();
   private opps = new Map<string, Opportunity>();
@@ -90,6 +97,8 @@ export class ScreenerService {
   private lastPhase: string | null = null;
   /** Trade date whose end-of-continuous-session summary has been written. */
   private summaryWrittenFor = '';
+  /** Trade date whose closing-prices snapshot has been written. */
+  private closeWrittenFor = '';
 
   constructor(
     private readonly angel: AngelConfig,
@@ -98,6 +107,7 @@ export class ScreenerService {
   ) {
     this.client = new AngelClient(angel);
     this.log = opts.log ?? defaultLog;
+    this.margins = new MarginBook(join(opts.dataDir ?? join(process.cwd(), 'data'), 'margins.json'));
   }
 
   async start(): Promise<void> {
@@ -185,6 +195,10 @@ export class ScreenerService {
       await feed.start([...instruments.values()]);
       this.running = true;
       this.log('info', `Streaming ${instruments.size} instruments`);
+      if (await this.margins.loadCache()) this.log('info', `Loaded ${this.margins.size} cached broker margins`);
+      // First fetch once quotes have arrived (prices are needed to express margins as a rate).
+      setTimeout(() => void this.refreshMargins(), MARGIN_FIRST_FETCH_DELAY_MS);
+      this.every(MARGIN_REFRESH_MS, () => this.refreshMargins());
 
       this.every(RECALC_DIRTY_MS, () => this.recalc(false));
       this.every(PUBLISH_TOP_MS, () => this.publish('top'));
@@ -217,6 +231,7 @@ export class ScreenerService {
       this.recalc(true);
       await this.publish('full');
       await this.writeSessionSummary();
+      if (sessionPhase(Date.now()) === 'closed' && this.lastPhase !== null) await this.writeCloseSnapshot();
     } catch (err) {
       this.log('error', `Final publish failed: ${(err as Error).message}`);
     }
@@ -250,6 +265,27 @@ export class ScreenerService {
     for (const c of this.contractsByToken.get(q.token) ?? []) this.dirty.add(c.futToken);
   }
 
+  private async refreshMargins(): Promise<void> {
+    if (!this.running || this.marginsBusy) return;
+    this.marginsBusy = true;
+    try {
+      const feedLast = this.feed?.status().lastMessageAt ?? null;
+      const started = Date.now();
+      const r = await this.margins.refresh(
+        this.client,
+        this.contracts,
+        (t) => this.store.get(t, feedLast)?.ltp ?? null,
+        () => !this.running,
+      );
+      this.log('info', `Broker margins: ${r.updated} updated, ${r.failed} failed, ${r.skipped} without price (${Math.round((Date.now() - started) / 1000)}s)`);
+      if (r.updated) this.recalc(true);
+    } catch (err) {
+      this.log('warn', `Margin refresh failed, using estimates where missing: ${(err as Error).message}`);
+    } finally {
+      this.marginsBusy = false;
+    }
+  }
+
   private async refreshSettings(): Promise<void> {
     try {
       const raw = (await this.publisher.readUserSettings()) ?? {};
@@ -280,6 +316,7 @@ export class ScreenerService {
           now,
           config: this.config,
           marketOpen: open,
+          marginRate: this.margins.rate(c.futToken),
         }),
       );
     }
@@ -332,6 +369,8 @@ export class ScreenerService {
     // before rows flip to "market closed".
     const phase = sessionPhase(Date.now());
     if (this.lastPhase === 'open' && phase !== 'open') await this.writeSessionSummary();
+    // After the derivatives close both legs have final prices: save the closing-prices view.
+    if (this.lastPhase === 'fo_only' && phase === 'closed') await this.writeCloseSnapshot();
     this.lastPhase = phase;
     this.recalc(true);
     const msg = this.buildMessage(kind);
@@ -403,6 +442,23 @@ export class ScreenerService {
       })),
     );
     await this.publisher.pruneBasisHistory(now - HISTORY_RETENTION_MS);
+  }
+
+  private async writeCloseSnapshot(): Promise<void> {
+    if (this.closeWrittenFor === this.tradeDate || !this.contracts.length) return;
+    const feedLast = this.feed?.status().lastMessageAt ?? null;
+    const msg = buildCloseMessage({
+      contracts: this.contracts,
+      quote: (t) => this.store.get(t, feedLast),
+      marginRate: (t) => this.margins.rate(t),
+      now: Date.now(),
+      settingsRaw: this.settingsRaw,
+      feed: this.buildMessage('top').feed,
+      version: WORKER_VERSION,
+    });
+    await this.publisher.writeCloseSnapshot(msg);
+    this.closeWrittenFor = this.tradeDate;
+    this.log('info', `Closing-prices snapshot saved for ${msg.tradeDate} (${msg.rows.length} contracts)`);
   }
 
   private async writeSessionSummary(): Promise<void> {

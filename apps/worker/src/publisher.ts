@@ -182,6 +182,18 @@ export class Publisher {
     );
   }
 
+  async writeCloseSnapshot(message: WireMessage): Promise<void> {
+    if (!message.tradeDate) throw new Error('close snapshot needs a trade date');
+    await this.check(
+      'close snapshot upsert',
+      this.db.from('close_snapshots').upsert({
+        trade_date: message.tradeDate,
+        taken_at: new Date(message.at).toISOString(),
+        payload: message,
+      }),
+    );
+  }
+
   async writeSessionSummary(tradeDate: string, summary: unknown): Promise<void> {
     await this.check(
       'session summary',

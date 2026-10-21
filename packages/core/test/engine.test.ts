@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { computeEconomics, computeOpportunity } from '../src/engine';
+import { applySettings } from '../src/settings';
 import { scheduleFor } from '../src/costs/schedules';
 import { fillFromDepth } from '../src/pricing';
 import { daysBetween, isExpired } from '../src/dates';
@@ -78,10 +79,26 @@ describe('hand-worked example: 1 lot of 500, cash ask 1000, futures bid 1010, 30
     expect(computeOpportunity({ ...args, config: config({ profitBasis: 'after_funding' }) }).status).toBe('unprofitable');
   });
 
-  it('capital measures are kept separate', () => {
-    expect(e.marginEstimate).toBeCloseTo(505_000 * 0.2, 6);
-    expect(e.totalCapitalAllocated).toBeCloseTo(500_000 + 101_000, 6);
-    expect(e.netReturnOnAllocatedPct).toBeCloseTo((e.netProfit / 601_000) * 100, 8);
+  it('capital required = cash purchase + entry charges + futures margin', () => {
+    // Entry charges: 617.893 (cash buy) + 288.19677 (futures sell) = 906.08977
+    // Margin (estimate, no broker figure): 20% × 5,05,000 = 1,01,000
+    expect(e.marginSource).toBe('estimate');
+    expect(e.marginEstimate).toBeCloseTo(101_000, 6);
+    expect(e.entryCosts).toBeCloseTo(906.08977, 5);
+    expect(e.mtmBuffer).toBe(0);
+    expect(e.capitalRequired).toBeCloseTo(500_000 + 906.08977 + 101_000, 5); // 6,01,906.09
+    // Return on capital uses the profit basis (before funding by default): 3,481.84 / 6,01,906.09
+    expect(e.netReturnOnCapitalPct).toBeCloseTo((3481.84023 / 601_906.08977) * 100, 6);
+    expect(e.annualizedYieldOnCapitalPct!).toBeCloseTo((3481.84023 / 601_906.08977) * (365 / 30) * 100, 5);
+  });
+
+  it('broker margin overrides the estimate', () => {
+    const b = run({}, { marginRate: 0.1766 }).economics!;
+    expect(b.marginSource).toBe('broker');
+    expect(b.marginEstimate).toBeCloseTo(505_000 * 0.1766, 6);
+    expect(b.capitalRequired).toBeCloseTo(500_000 + 906.08977 + 505_000 * 0.1766, 5);
+    // Implausible broker figures fall back to the estimate.
+    expect(run({}, { marginRate: 3 }).economics!.marginSource).toBe('estimate');
   });
 
   it('LTP basis is reported separately and only informationally', () => {
@@ -114,10 +131,27 @@ describe('exit modes and assumptions', () => {
 
   it('pledged shares reduce extra margin cash, capped by the 50:50 rule', () => {
     const e = run({
-      margin: { marginRate: 0.2, pledgeShares: true, pledgeHaircut: 0.2, maxCollateralShareOfMargin: 0.5 },
+      margin: { marginRate: 0.2, pledgeShares: true, pledgeHaircut: 0.2, maxCollateralShareOfMargin: 0.5, mtmBufferRate: 0 },
     }).economics!;
+    // min(50% × 1,01,000, 80% × 5,00,000) = 50,500
     expect(e.collateralCredit).toBeCloseTo(50_500, 6);
-    expect(e.totalCapitalAllocated).toBeCloseTo(500_000 + 101_000 - 50_500, 6);
+    expect(e.capitalRequired).toBeCloseTo(500_000 + 906.08977 + 101_000 - 50_500, 5);
+  });
+
+  it('MTM buffer adds a share of futures value to capital', () => {
+    const e = run({
+      margin: { marginRate: 0.2, pledgeShares: false, pledgeHaircut: 0.2, maxCollateralShareOfMargin: 0.5, mtmBufferRate: 0.05 },
+    }).economics!;
+    expect(e.mtmBuffer).toBeCloseTo(25_250, 6);
+    expect(e.capitalRequired).toBeCloseTo(500_000 + 906.08977 + 101_000 + 25_250, 5);
+  });
+
+  it('settings map to margin config', () => {
+    const c = applySettings({ fallbackMarginPct: 25, mtmBufferPct: 5, pledgeShares: true });
+    expect(c.margin.marginRate).toBe(0.25);
+    expect(c.margin.mtmBufferRate).toBe(0.05);
+    expect(c.margin.pledgeShares).toBe(true);
+    expect(applySettings({ mtmBufferPct: 500 } as never).margin.mtmBufferRate).toBe(0); // out of range ignored
   });
 
   it('a negative net result is unprofitable, not executable', () => {

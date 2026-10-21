@@ -18,6 +18,12 @@ export interface UserCalcSettings {
   exitSlippageBps?: number;
   investmentAmount?: number | null;
   staleAfterSeconds?: number;
+  /** Margin % of futures value used when the broker margin is unavailable. */
+  fallbackMarginPct?: number;
+  /** Cash kept for mark-to-market losses, % of futures value. */
+  mtmBufferPct?: number;
+  /** Pledge the purchased shares as margin collateral. */
+  pledgeShares?: boolean;
 }
 
 const num = (v: unknown, min: number, max: number): number | undefined =>
@@ -40,6 +46,9 @@ export function sanitizeSettings(raw: unknown): UserCalcSettings {
     exitSlippageBps: num(r.exitSlippageBps, 0, 100),
     investmentAmount: r.investmentAmount === null ? null : num(r.investmentAmount, 1, 1e10),
     staleAfterSeconds: num(r.staleAfterSeconds, 2, 600),
+    fallbackMarginPct: num(r.fallbackMarginPct, 5, 100),
+    mtmBufferPct: num(r.mtmBufferPct, 0, 50),
+    pledgeShares: typeof r.pledgeShares === 'boolean' ? r.pledgeShares : undefined,
   };
   if (out.lots !== undefined) out.lots = Math.floor(out.lots);
   for (const k of Object.keys(out) as (keyof UserCalcSettings)[]) if (out[k] === undefined) delete out[k];
@@ -57,6 +66,12 @@ export function applySettings(settings: UserCalcSettings, base: CalcConfig = DEF
     exitSlippageBps: s.exitSlippageBps ?? base.exitSlippageBps,
     investmentAmount: s.investmentAmount !== undefined ? s.investmentAmount : base.investmentAmount,
     staleAfterMs: s.staleAfterSeconds !== undefined ? s.staleAfterSeconds * 1000 : base.staleAfterMs,
+    margin: {
+      ...base.margin,
+      marginRate: s.fallbackMarginPct !== undefined ? s.fallbackMarginPct / 100 : base.margin.marginRate,
+      mtmBufferRate: s.mtmBufferPct !== undefined ? s.mtmBufferPct / 100 : base.margin.mtmBufferRate,
+      pledgeShares: s.pledgeShares ?? base.margin.pledgeShares,
+    },
     funding: {
       ...base.funding,
       ownCapitalRate: s.fundingRatePct !== undefined ? s.fundingRatePct / 100 : base.funding.ownCapitalRate,

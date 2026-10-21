@@ -8,7 +8,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "check:stream": "tsx --env-file-if-exists=.env src/scripts/check-stream.ts",
-    "start": "tsx --env-file-if-exists=.env src/index.ts"
+    "start": "tsx --env-file-if-exists=.env src/index.ts",
+    "close:snapshot": "tsx --env-file-if-exists=.env src/scripts/close-snapshot.ts"
   },
   "dependencies": {
     "@arb/core": "*",

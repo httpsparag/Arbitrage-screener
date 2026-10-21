@@ -9,7 +9,18 @@ const ROUTES = {
   login: '/rest/auth/angelbroking/user/v1/loginByPassword',
   logout: '/rest/secure/angelbroking/user/v1/logout',
   quote: '/rest/secure/angelbroking/market/v1/quote',
+  margin: '/rest/secure/angelbroking/margin/v1/batch',
 } as const;
+
+export interface MarginPosition {
+  exchange: AngelExchange;
+  qty: number;
+  price: number;
+  productType: 'CARRYFORWARD' | 'DELIVERY' | 'INTRADAY';
+  token: string;
+  tradeType: 'BUY' | 'SELL';
+  orderType: 'MARKET' | 'LIMIT';
+}
 
 /** Max tokens per quote request. */
 export const QUOTE_BATCH_SIZE = 50;
@@ -161,6 +172,12 @@ export class AngelClient {
     } finally {
       this.session = null;
     }
+  }
+
+  /** Broker margin calculator for a set of positions (combined margin for the batch). */
+  async margin(positions: MarginPosition[]): Promise<Record<string, unknown>> {
+    if (!this.session) throw new Error('Not logged in');
+    return this.post<Record<string, unknown>>(ROUTES.margin, { positions });
   }
 
   /**

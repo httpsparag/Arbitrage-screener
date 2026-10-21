@@ -10,10 +10,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@arb/core": "*",
+    "@supabase/supabase-js": "^2.118.0",
+    "lightweight-charts": "^5.2.1",
+    "lucide-react": "^1.61.0",
     "next": "16.4.2",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "@arb/core": "*"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
