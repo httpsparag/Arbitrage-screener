@@ -166,8 +166,10 @@ export interface WireFeed {
   subscribed: number;
   reconnects: number;
   lastError: string | null;
-  /** 'open' | 'pre_open' | 'closed' by the exchange clock. */
+  /** Session phase by the exchange clock (see sessionPhase). */
   session: string;
+  /** For polled sources: how often prices are refreshed, ms. Absent for streaming. */
+  pollIntervalMs?: number;
 }
 
 export interface WireSummary {

@@ -34,20 +34,25 @@ export function liveStatus(
   channel: ChannelState,
 ): LiveStatus {
   const phase = sessionPhase(now);
-  if (!lastMessageAt) return { label: "NO DATA", tone: "idle", detail: "Waiting for the worker…", phase };
+  if (!lastMessageAt) return { label: "NO DATA", tone: "idle", detail: "Waiting for the scanner…", phase };
   const age = now - lastMessageAt;
+  // Polled sources (the cloud scanner) refresh every few tens of seconds; allow for that.
+  const poll = feed?.pollIntervalMs ?? 0;
+  const liveWindow = poll ? poll * 2 + 15_000 : LIVE_WINDOW_MS;
+  const offlineAfter = poll ? poll * 4 + 60_000 : OFFLINE_AFTER_MS;
+  const cadence = poll ? ` · every ${Math.round(poll / 1000)} s` : "";
   if (phase !== "open") {
     return { label: PHASE_LABEL[phase], tone: "idle", detail: `Last update ${ago(age)} · not executable`, phase };
   }
-  if (age > OFFLINE_AFTER_MS) {
-    return { label: "OFFLINE", tone: "down", detail: `No data for ${ago(age).replace(" ago", "")} — is the worker running?`, phase };
+  if (age > offlineAfter) {
+    return { label: "OFFLINE", tone: "down", detail: `No data for ${ago(age).replace(" ago", "")} — check Settings → Cloud scanner`, phase };
   }
   if (channel === "error") return { label: "RECONNECTING", tone: "warn", detail: `Last update ${ago(age)}`, phase };
   if (feed && feed.state !== "connected") {
     return { label: "FEED " + feed.state.toUpperCase(), tone: "warn", detail: feed.lastError ?? `Last update ${ago(age)}`, phase };
   }
-  if (age > LIVE_WINDOW_MS) return { label: "STALE", tone: "warn", detail: `Last update ${ago(age)}`, phase };
-  return { label: "LIVE", tone: "live", detail: `Updated ${ago(age)}`, phase };
+  if (age > liveWindow) return { label: "STALE", tone: "warn", detail: `Last update ${ago(age)}`, phase };
+  return { label: "LIVE", tone: "live", detail: `Updated ${ago(age)}${cadence}`, phase };
 }
 
 export function rowIsStale(s: RowState, now: number, phase: SessionPhase): boolean {

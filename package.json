@@ -12,12 +12,18 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:status": "node scripts/db.mjs status",
     "db:dry-run": "node scripts/db.mjs dry-run",
-    "db:push": "node scripts/db.mjs push"
+    "db:push": "node scripts/db.mjs push",
+    "fn:secrets": "node scripts/fn.mjs secrets",
+    "fn:deploy": "node scripts/fn.mjs deploy",
+    "fn:schedule": "node scripts/fn.mjs schedule",
+    "fn:invoke": "node scripts/fn.mjs invoke",
+    "bundle:core": "node scripts/bundle-core.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
+    "pg": "^8.23.1",
     "supabase": "^2.121.0"
   }
 }

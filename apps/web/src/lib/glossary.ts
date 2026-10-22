@@ -91,8 +91,8 @@ export const GLOSSARY: Record<Term, { title: string; body: string[] }> = {
   live: {
     title: "Live status",
     body: [
-      "LIVE — prices are streaming and the list refreshes about every 5 seconds.",
-      "STALE or OFFLINE — the screener has not received fresh prices recently (is the worker running on your PC?). Nothing is shown as profitable from old prices.",
+      "LIVE — prices are fresh; the cloud scanner refreshes them every 30 seconds during market hours.",
+      "STALE or OFFLINE — no fresh prices recently. Check Settings → Cloud scanner. Nothing is shown as profitable from old prices.",
       "MARKET CLOSED — outside 09:15–15:15 IST; you see closing prices for review.",
     ],
   },

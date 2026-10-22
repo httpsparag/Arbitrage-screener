@@ -24,6 +24,7 @@ import { DetailSheet } from "./DetailSheet";
 import { activeFilterCount, FiltersSheet } from "./FiltersSheet";
 import { HelpSheet } from "./HelpSheet";
 import { DesktopTable, OpportunityCard } from "./OpportunityList";
+import { ControlPanel } from "./ControlPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { Explain, IconButton } from "./ui";
 
@@ -161,6 +162,9 @@ export function Dashboard({ session }: { session: Session }) {
         {tab === "settings" ? (
           <div className="mx-auto max-w-xl">
             <h2 className="mb-4 text-2xl font-semibold tracking-tight">Settings</h2>
+            <div className="mb-6">
+              <ControlPanel now={now} />
+            </div>
             <SettingsPanel
               email={session.user.email}
               settings={user.settings}
@@ -440,7 +444,7 @@ function Hero({
         </p>
         <h2 className="mt-1.5 text-[22px] font-semibold leading-snug tracking-tight">No data yet</h2>
         <p className="mt-1.5 text-sm text-muted">
-          Start the worker on your PC (<code className="text-xs">npm start -w @arb/worker</code>). It streams prices during market hours.
+          The cloud scanner fills this in automatically on weekdays from 09:15. Check Settings → Cloud scanner for its status.
         </p>
       </section>
     );
@@ -513,7 +517,7 @@ function EmptyState({ tab, hasData, view }: { tab: Tab; hasData: boolean; view: 
     tab === "watchlist"
       ? ["Your watchlist is empty", "Tap the ☆ on any stock to follow it here — all its expiries will show together."]
       : !hasData
-        ? ["No data yet", "Start the worker on your PC; it publishes prices during market hours."]
+        ? ["No data yet", "The cloud scanner publishes prices on weekdays from 09:15. See Settings → Cloud scanner."]
         : view === "profitable" || view === "beats"
           ? ["Nothing qualifies right now", "When charges are bigger than the price gaps, nothing is shown as profitable. Try “All”, or check again during market hours."]
           : ["No matches", "Try clearing the search or relaxing the filters."];
