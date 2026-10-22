@@ -17,12 +17,25 @@ export default function Home() {
   useEffect(() => {
     if (!supabaseConfigured()) return;
     const supabase = getSupabase();
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+    // A broken or expired stored session must not leave the app on "Loading…" forever:
+    // on error, or no answer within 8 s, fall back to the login screen.
+    const fallback = setTimeout(() => setChecking(false), 8000);
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setSession(data.session))
+      .catch(() => setSession(null))
+      .finally(() => {
+        clearTimeout(fallback);
+        setChecking(false);
+      });
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s);
       setChecking(false);
     });
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => data.subscription.unsubscribe();
+    return () => {
+      clearTimeout(fallback);
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   if (!mounted || checking) {

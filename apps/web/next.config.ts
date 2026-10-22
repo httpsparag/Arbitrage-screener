@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
   // The shared calculation engine is TypeScript source in the monorepo.
   transpilePackages: ["@arb/core"],
   // Let a phone on the same home network open the dev server by the PC's IP address.
-  allowedDevOrigins: ["192.168.*.*", "10.*.*.*"],
+  // 127.0.0.1 too: without it the dev server blocks the app's scripts there and the page stays on "Loading…".
+  allowedDevOrigins: ["127.0.0.1", "192.168.*.*", "10.*.*.*"],
   turbopack: {
     rules: {
       "*.css": {
